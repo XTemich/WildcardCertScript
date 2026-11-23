@@ -1,89 +1,81 @@
 # Wildcard SSL Certificate Manager
 
-Скрипт для получения **wildcard**-сертификатов Let's Encrypt (`*.example.com` + `example.com`) через Cloudflare DNS API с автоматическим обновлением.
+**Русский** | [English](README.en.md)
+
+Скрипт для установки и управления SSL/TLS-сертификатами (`*.example.com` + `example.com`) в трёх режимах: ручная установка, Let's Encrypt wildcard при выключенном проксировании (DNS-only) и Let's Encrypt wildcard при включённом проксировании Cloudflare с проверкой `Full (strict)`.
+
+---
+
+## Режимы работы
+
+1. **Ручной (`1`)** — копирует готовые файлы сертификата и ключа в `/etc/ssl/custom/<domain>/`, выставляет безопасные права (`644` / `600`) и при наличии перезагружает Nginx.
+2. **Выключенное облачко (DNS-only) + Let's Encrypt Wildcard (`2`)** — выпускает сертификат для `*.example.com` и `example.com` через `certbot --dns-cloudflare`, создаёт `/root/<domain>-ssl-renew.sh` и настраивает cron-задачу каждые 7 дней в `04:05`.
+3. **Включённое облачко (Проксирование Cloudflare) + Let's Encrypt Wildcard + `Full (strict)` (`3`)** — делает всё то же, что и режим 2, плюс проверяет и при необходимости переключает режим шифрования зоны в Cloudflare на `Full (strict)` (`strict`) через API.
 
 ---
 
 ## Требования
 
-- Ubuntu / Debian (или любой дистрибутив с `apt`)
+- Python 3.8+ и Ubuntu / Debian (или другой дистрибутив с `apt` для режимов 2 и 3)
 - Root-доступ (`sudo`)
-- Домен, DNS которого находится на Cloudflare
-- Nginx (или другой веб-сервер) — для post-hook перезагрузки
+- Для режимов 2 и 3: домен на Cloudflare и Cloudflare API Token
+- Nginx (опционально) — при наличии проверяется (`nginx -t`) и перезагружается (`systemctl reload nginx`)
 
 ---
 
 ## Быстрый старт
 
+Интерактивный запуск:
+
 ```bash
 sudo python3 wildcard_ssl.py
 ```
 
-Скрипт задаст вопросы интерактивно:
-1. Домен
-2. Cloudflare API Token
+Запуск с параметрами командной строки:
+
+```bash
+sudo python3 wildcard_ssl.py --mode 3 --domain example.com --token ВАШ_ТОКЕН
+```
 
 ---
 
 ## Как создать Cloudflare API Token
 
 1. Зайдите в Cloudflare → **My Profile** → **API Tokens** → **Create Token**
-2. Используйте шаблон **Edit zone DNS**  
-   или Custom: Permission `Zone.DNS:Edit`
-3. Zone Resources → Include → Specific zone → ваш домен
-4. Создайте токен и вставьте его в скрипт
+2. Для **режима 2 (DNS-only)**: используйте шаблон **Edit zone DNS** (`Zone → DNS → Edit`)
+3. Для **режима 3 (Проксирование + `Full (strict)`)**: добавьте `Zone → DNS → Edit` и `Zone → SSL and Certificates → Edit` (при необходимости также `Zone → Zone → Read` для поиска зоны)
+4. В разделе **Zone Resources** выберите **Include** → **Specific zone** → ваш домен
 
 ---
 
 ## Что делает скрипт
 
-- Устанавливает `certbot` + `python3-certbot-dns-cloudflare`
-- Сохраняет токен в `/root/.secrets/certbot/cloudflare.ini` (права `600`)
-- Выдаёт сертификат для `*.domain` и `domain`
-- Создаёт скрипт обновления `/root/<domain>-ssl-renew.sh`
-- Добавляет cron-задачу: каждые 7 дней в 04:05
-
-### Пример команды выдачи
-
-```bash
-certbot certonly --dns-cloudflare \
-  --dns-cloudflare-credentials /root/.secrets/certbot/cloudflare.ini \
-  -d 'example.com' -d '*.example.com' \
-  --agree-tos --non-interactive \
-  --register-unsafely-without-email \
-  --server https://acme-v02.api.letsencrypt.org/directory
-```
+- **Режим 1:** копирует `fullchain.pem` и `privkey.pem` в `/etc/ssl/custom/<domain>/` и перезагружает Nginx
+- **Режимы 2 и 3:**
+  - Устанавливает `certbot` и `python3-certbot-dns-cloudflare`
+  - Сохраняет токен в `/root/.secrets/certbot/cloudflare.ini` (права `600`)
+  - Выпускает wildcard-сертификат на `<domain>` и `*.<domain>`
+  - Создаёт `/root/<domain>-ssl-renew.sh` и добавляет задачу в `crontab` (`5 4 */7 * *`)
+  - В **режиме 3** проверяет настройку SSL/TLS зоны и переключает её на `strict` (`Full (strict)`)
 
 ---
 
-## Где лежат сертификаты
+## Где лежат сертификаты и пример для Nginx
 
-```
-/etc/letsencrypt/live/<domain>/
-├── fullchain.pem
-├── privkey.pem
-├── cert.pem
-└── chain.pem
-```
-
-Пример конфигурации Nginx:
+- Let's Encrypt (режимы 2 и 3): `/etc/letsencrypt/live/<domain>/fullchain.pem` и `privkey.pem`
+- Ручной режим (режим 1): `/etc/ssl/custom/<domain>/fullchain.pem` и `privkey.pem`
 
 ```nginx
 ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
 ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
 ```
 
-После обновления сертификата скрипт автоматически делает `systemctl reload nginx`.
-
 ---
 
 ## Проверка обновления
 
 ```bash
-# Тестовый прогон
 sudo certbot renew --dry-run
-
-# Или напрямую скрипт
 sudo /root/example.com-ssl-renew.sh
 ```
 
@@ -92,11 +84,5 @@ sudo /root/example.com-ssl-renew.sh
 ## Замечания
 
 - Email не требуется (используется `--register-unsafely-without-email`)
-- Скрипт не затирает существующий crontab — только добавляет/обновляет свою строку
-- Рекомендуется запускать от root
-
----
-
-## Лицензия
-
-MIT. Используйте на свой страх и риск.
+- Существующие строки в `crontab` не затираются — обновляется только задача для выбранного домена
+- Требуется запуск от `root`
