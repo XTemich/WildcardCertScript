@@ -1,2 +1,6 @@
+idea
 .idea
+*.idea
+wildcard_sslv2.py
 .wildcard_sslv2.py
+*.wildcard_sslv2.py
