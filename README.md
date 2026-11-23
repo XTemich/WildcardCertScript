@@ -1,5 +1,7 @@
 # Wildcard SSL Certificate Manager
 
+[English](README.en.md) | **Русский**
+
 Скрипт для получения **wildcard**-сертификатов Let's Encrypt (`*.example.com` + `example.com`) через Cloudflare DNS API с автоматическим обновлением.
 
 ---
